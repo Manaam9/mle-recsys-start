@@ -1,3 +1,11 @@
+env_recsys_start/
+venv/
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+*.parquet
+data/
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]

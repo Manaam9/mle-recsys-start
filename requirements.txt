@@ -7,6 +7,6 @@ pandas==2.1.1
 pyarrow==13.0.0
 requests==2.31.0
 scikit-learn==1.3.2
-scikit-surprise==1.1.3
+scikit-surprise
 seaborn==0.12.1
 uvicorn==0.24.0.post1
