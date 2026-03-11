@@ -25,3 +25,4 @@ async def recommendations(user_id: int, k: int = 100):
     recs = []
 
     return {"recs": recs}
+
