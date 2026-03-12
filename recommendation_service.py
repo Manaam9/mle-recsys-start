@@ -57,12 +57,12 @@ async def lifespan(app: FastAPI):
 
     rec_store.load(
         "personal",
-        "goodread/als_recommendations.parquet",
+        "als_recommendations.parquet",
         columns=["user_id", "item_id", "score"],
     )
     rec_store.load(
         "default",
-        "goodread/top_recs.parquet",
+        "top_recs.parquet",
         columns=["item_id", "rank"],
     )
 
@@ -75,45 +75,52 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="recommendations", lifespan=lifespan)
 
 
-@app.post("/recommendations")
-async def recommendations(user_id: int, k: int = 100):
+@app.post("/recommendations_offline")
+async def recommendations_offline(user_id: int, k: int = 100):
     """
-    Возвращает список рекомендаций длиной k для пользователя user_id
+    Возвращает список офлайн-рекомендаций длиной k для пользователя user_id
     """
     recs = rec_store.get(user_id, k)
     return {"recs": recs}
 
 
+def dedup_ids(ids):
+    """
+    Дедублицирует список идентификаторов, оставляя только первое вхождение
+    """
+    seen = set()
+    ids = [id for id in ids if not (id in seen or seen.add(id))]
+
+    return ids
+
+
 @app.post("/recommendations_online")
-async def recommendations_online(user_id: int, k: int = 10):
-    """
-    Возвращает онлайн-рекомендации по последнему событию пользователя
-    """
-    try:
-        events_resp = requests.post(
-            events_store_url + "/get",
-            params={"user_id": user_id, "k": 1},
-            timeout=5,
-        )
-        events_resp.raise_for_status()
-        events = events_resp.json().get("events", [])
+async def recommendations_online(user_id: int, k: int = 100):
 
-        if not events:
-            return {"recs": []}
+    headers = {"Content-type": "application/json", "Accept": "text/plain"}
 
-        last_item_id = events[0]
+    # получаем 3 последних события пользователя
+    params = {"user_id": user_id, "k": 3}
+    resp = requests.post(events_store_url + "/get", headers=headers, params=params)
+    events = resp.json()["events"]
 
-        sim_resp = requests.post(
-            features_store_url + "/similar_items",
-            params={"item_id": last_item_id, "k": k},
-            timeout=5,
-        )
-        sim_resp.raise_for_status()
-        similar_items = sim_resp.json().get("item_id_2", [])
+    items = []
+    scores = []
 
-        rec_store._stats["request_online_count"] += 1
-        return {"recs": similar_items}
+    for item_id in events:
 
-    except Exception as e:
-        logger.error(f"Online recommendations error: {e}")
-        return {"recs": []}
+        params = {"item_id": item_id, "k": k}
+        resp = requests.post(features_store_url + "/similar_items", headers=headers, params=params)
+
+        item_similar_items = resp.json()
+
+        items += item_similar_items["item_id_2"]
+        scores += item_similar_items["score"]
+
+    combined = list(zip(items, scores))
+    combined = sorted(combined, key=lambda x: x[1], reverse=True)
+    combined = [item for item, _ in combined]
+
+    recs = dedup_ids(combined)
+
+    return {"recs": recs[:k]}
